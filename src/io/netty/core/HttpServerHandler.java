@@ -4,140 +4,101 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.multipart.*;
-import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder.EndOfDataDecoderException;
 import io.netty.handler.codec.http.multipart.InterfaceHttpData.HttpDataType;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.CharsetUtil;
 
+import java.io.File;
 import java.io.IOException;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.logging.Level;
+import java.util.*;
 import java.util.logging.Logger;
 
 import static io.netty.buffer.Unpooled.copiedBuffer;
 import static io.netty.handler.codec.http.HttpHeaders.Names.*;
+
 /**
  * Created by Administrator on 2016/11/27.
  */
 public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
     private static final Logger logger = Logger.getLogger(HttpServerHandler.class.getName());
 
-    private FullHttpRequest fullHttpRequest;
-
-    private boolean readingChunks;
-
-    private final StringBuilder responseContent = new StringBuilder();
-
     private static final HttpDataFactory factory = new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE); //Disk
-
-    private HttpPostRequestDecoder decoder;
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        if (decoder != null) {
-            decoder.cleanFiles();
-        }
+        super.channelInactive(ctx);
     }
 
-    public void messageReceived(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
-        System.out.println(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>");
-        fullHttpRequest = (FullHttpRequest) msg;
+    public void messageReceived(ChannelHandlerContext ctx, FullHttpRequest msg) {
+        FullHttpRequest httpRequest = (FullHttpRequest) msg;
 
         if (HttpServer.isSSL) {
-            System.out.println("Your session is protected by " +
+            logger.info("Your session is protected by " +
                     ctx.pipeline().get(SslHandler.class).engine().getSession().getCipherSuite() +
                     " cipher suite.\n");
         }
-        /**
-         * 在服务器端打印请求信息
-         */
-        System.out.println("VERSION: " + fullHttpRequest.getProtocolVersion().text() + "\r\n");
-        System.out.println("REQUEST_URI: " + fullHttpRequest.getUri() + "\r\n\r\n");
-        System.out.println("\r\n\r\n");
-        for (Map.Entry<String, String> entry : fullHttpRequest.headers()) {
-            System.out.println("HEADER: " + entry.getKey() + '=' + entry.getValue() + "\r\n");
-        }
 
-        /**
-         * 服务器端返回信息
-         */
-        responseContent.setLength(0);
-        responseContent.append("WELCOME TO THE WILD WILD WEB SERVER\r\n");
-        responseContent.append("===================================\r\n");
+        HttpRequestMessage requestMessage = null;
+        try {
+            requestMessage = decode(httpRequest);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        logger.info("requestMessage : " + requestMessage.toString());
+        writeResponse("",ctx.channel(), httpRequest);
+        return;
+    }
 
-        responseContent.append("VERSION: " + fullHttpRequest.getProtocolVersion().text() + "\r\n");
-        responseContent.append("REQUEST_URI: " + fullHttpRequest.getUri() + "\r\n\r\n");
-        responseContent.append("\r\n\r\n");
-        for (Map.Entry<String, String> entry : fullHttpRequest.headers()) {
-            responseContent.append("HEADER: " + entry.getKey() + '=' + entry.getValue() + "\r\n");
+    private HttpRequestMessage decode(FullHttpRequest httpRequest) throws IOException {
+        HttpRequestMessage requestMessage = new HttpRequestMessage();
+        requestMessage.setHttpVersion(httpRequest.getProtocolVersion().text());
+        requestMessage.setUri(httpRequest.getUri());
+        requestMessage.setHeader(new HashMap<String, Object>());
+        requestMessage.setParameters(new HashMap<String, Object>());
+        for (Map.Entry<String, String> entry : httpRequest.headers()) {
+            requestMessage.getHeader().put(entry.getKey(), entry.getValue());
         }
-        responseContent.append("\r\n\r\n");
-        Set<Cookie> cookies;
-        String value = fullHttpRequest.headers().get(COOKIE);
-        if (value == null) {
-            cookies = Collections.emptySet();
-        } else {
-            cookies = CookieDecoder.decode(value);
-        }
-        for (Cookie cookie : cookies) {
-            responseContent.append("COOKIE: " + cookie.toString() + "\r\n");
-        }
-        responseContent.append("\r\n\r\n");
-
-        if (fullHttpRequest.getMethod().equals(HttpMethod.GET)) {
+        if (httpRequest.getMethod().equals(HttpMethod.GET)) {
             //get请求
-            QueryStringDecoder decoderQuery = new QueryStringDecoder(fullHttpRequest.getUri());
+            requestMessage.setMethod("GET");
+            QueryStringDecoder decoderQuery = new QueryStringDecoder(httpRequest.getUri());
             Map<String, List<String>> uriAttributes = decoderQuery.parameters();
             for (Map.Entry<String, List<String>> attr : uriAttributes.entrySet()) {
                 for (String attrVal : attr.getValue()) {
-                    responseContent.append("URI: " + attr.getKey() + '=' + attrVal + "\r\n");
+                    requestMessage.getParameters().put(attr.getKey(), attrVal);
                 }
             }
-            responseContent.append("\r\n\r\n");
-
-            responseContent.append("\r\n\r\nEND OF GET CONTENT\r\n");
-            writeResponse(ctx.channel());
-            return;
-        } else if (fullHttpRequest.getMethod().equals(HttpMethod.POST)) {
+        } else if (httpRequest.getMethod().equals(HttpMethod.POST)) {
             //post请求
-            decoder = new HttpPostRequestDecoder(factory, fullHttpRequest);
-            readingChunks = HttpHeaders.isTransferEncodingChunked(fullHttpRequest);
-            responseContent.append("Is Chunked: " + readingChunks + "\r\n");
-            responseContent.append("IsMultipart: " + decoder.isMultipart() + "\r\n");
-
-            try {
+            requestMessage.setMethod("POST");
+            HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(factory, httpRequest);
+            if (decoder.isMultipart()) {
                 while (decoder.hasNext()) {
                     InterfaceHttpData data = decoder.next();
                     if (data != null) {
                         try {
-                            writeHttpData(data);
+                            writeHttpData(data, requestMessage);
                         } finally {
                             data.release();
                         }
                     }
                 }
-            } catch (EndOfDataDecoderException e1) {
-                responseContent.append("\r\n\r\nEND OF POST CONTENT\r\n\r\n");
+
+            } else {
+                decoder.offer(httpRequest);
+                List<InterfaceHttpData> parmList = decoder.getBodyHttpDatas();
+                for (InterfaceHttpData parm : parmList) {
+                    Attribute attribute = (Attribute) parm;
+                    requestMessage.getParameters().put(attribute.getName(), attribute.getValue());
+                }
             }
-            writeResponse(ctx.channel());
-            return;
+            decoder.destroy();
         } else {
-            System.out.println("discard.......");
-            return;
         }
+        return requestMessage;
     }
 
-    private void reset() {
-        fullHttpRequest = null;
-        // destroy the decoder to release all resources
-        decoder.destroy();
-        decoder = null;
-    }
-
-    private void writeHttpData(InterfaceHttpData data) {
+    private void writeHttpData(InterfaceHttpData data, HttpRequestMessage requestMessage) throws IOException {
 
         /**
          * HttpDataType有三种类型
@@ -145,40 +106,54 @@ public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
          */
         if (data.getHttpDataType() == HttpDataType.Attribute) {
             Attribute attribute = (Attribute) data;
-            String value;
-            try {
-                value = attribute.getValue();
-            } catch (IOException e1) {
-                e1.printStackTrace();
-                responseContent.append("\r\nBODY Attribute: " + attribute.getHttpDataType().name() + ":"
-                        + attribute.getName() + " Error while reading value: " + e1.getMessage() + "\r\n");
-                return;
-            }
-            if (value.length() > 100) {
-                responseContent.append("\r\nBODY Attribute: " + attribute.getHttpDataType().name() + ":"
-                        + attribute.getName() + " data too long\r\n");
-            } else {
-                responseContent.append("\r\nBODY Attribute: " + attribute.getHttpDataType().name() + ":"
-                        + attribute.toString() + "\r\n");
+            requestMessage.getParameters().put(attribute.getName(), attribute.getValue());
+        } else if (data.getHttpDataType() == HttpDataType.FileUpload) {
+            String uploadFileName = getUploadFileName(data);
+            FileUpload fileUpload = (FileUpload) data;
+            if (fileUpload.isCompleted()) {
+                // fileUpload.isInMemory();// tells if the file is in Memory
+                // or on File
+                // fileUpload.renameTo(dest); // enable to move into another
+                // File dest
+                // decoder.removeFileUploadFromClean(fileUpload); //remove
+                // the File of to delete file
+                String tmp = System.getProperty("java.io.tmpdir");
+                if (System.getProperties().getProperty("os.name").toLowerCase().contains("window")) {
+                    tmp = tmp + "\\";
+                } else
+                    tmp = tmp + "/";
+                File dir = new File(tmp + File.separator);
+                if (!dir.exists()) {
+                    dir.mkdir();
+                }
+                File dest = new File(dir, uploadFileName);
+                fileUpload.renameTo(dest);
+//                requestMessage.
+                requestMessage.getParameters().put(fileUpload.getName(), dest.getAbsolutePath());
             }
         }
     }
 
+    private String getUploadFileName(InterfaceHttpData data) {
+        String content = data.toString();
+        String temp = content.substring(0, content.indexOf("\n"));
+        content = temp.substring(temp.lastIndexOf("=") + 2, temp.lastIndexOf("\""));
+        return content;
+    }
 
     /**
      * http返回响应数据
      *
      * @param channel
      */
-    private void writeResponse(Channel channel) {
+    private void writeResponse(String o,Channel channel, HttpRequest httpRequest) {
         // Convert the response content to a ChannelBuffer.
-        ByteBuf buf = copiedBuffer(responseContent.toString(), CharsetUtil.UTF_8);
-        responseContent.setLength(0);
+        ByteBuf buf = copiedBuffer(o, CharsetUtil.UTF_8);
 
         // Decide whether to close the connection or not.
-        boolean close = fullHttpRequest.headers().contains(CONNECTION, HttpHeaders.Values.CLOSE, true)
-                || fullHttpRequest.getProtocolVersion().equals(HttpVersion.HTTP_1_0)
-                && !fullHttpRequest.headers().contains(CONNECTION, HttpHeaders.Values.KEEP_ALIVE, true);
+        boolean close = httpRequest.headers().contains(CONNECTION, HttpHeaders.Values.CLOSE, true)
+                || httpRequest.getProtocolVersion().equals(HttpVersion.HTTP_1_0)
+                && !httpRequest.headers().contains(CONNECTION, HttpHeaders.Values.KEEP_ALIVE, true);
 
         // Build the response object.
         FullHttpResponse response = new DefaultFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
@@ -191,7 +166,7 @@ public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
         }
 
         Set<Cookie> cookies;
-        String value = fullHttpRequest.headers().get(COOKIE);
+        String value = httpRequest.headers().get(COOKIE);
         if (value == null) {
             cookies = Collections.emptySet();
         } else {
@@ -213,12 +188,11 @@ public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        logger.log(Level.WARNING, responseContent.toString(), cause);
         ctx.channel().close();
     }
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
-        messageReceived(ctx, msg);
+        messageReceived(ctx, (FullHttpRequest) msg);
     }
 }
