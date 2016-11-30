@@ -77,8 +77,10 @@ public class HttpRequestMessage {
         for (Map.Entry<String, Object> entry : this.header.entrySet()) {
             sb.append(entry.getKey() + " : " + entry.getValue() + "\r\n");
         }
-        for (Map.Entry<String, Object> entry : this.parameters.entrySet()) {
-            sb.append(entry.getKey() + " : " + entry.getValue() + "\r\n");
+        if (this.parameters != null) {
+            for (Map.Entry<String, Object> entry : this.parameters.entrySet()) {
+                sb.append(entry.getKey() + " : " + entry.getValue() + "\r\n");
+            }
         }
         return sb.toString();
     }

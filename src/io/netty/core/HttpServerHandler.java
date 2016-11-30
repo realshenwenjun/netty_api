@@ -8,7 +8,6 @@ import io.netty.handler.codec.http.multipart.InterfaceHttpData.HttpDataType;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.CharsetUtil;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.*;
 import java.util.logging.Logger;
@@ -21,84 +20,133 @@ import static io.netty.handler.codec.http.HttpHeaders.Names.*;
  */
 public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
     private static final Logger logger = Logger.getLogger(HttpServerHandler.class.getName());
-
+    private HttpRequestMessage requestMessage;
+    private HttpRequest httpRequest;
     private static final HttpDataFactory factory = new DefaultHttpDataFactory(DefaultHttpDataFactory.MINSIZE); //Disk
+    private HttpPostRequestDecoder decoder;
+
+    static {
+        DiskFileUpload.deleteOnExitTemporaryFile = true; // should delete file
+        // on exit (in normal
+        // exit)
+        DiskFileUpload.baseDirectory = null; // system temp directory
+        DiskAttribute.deleteOnExitTemporaryFile = true; // should delete file on
+        // exit (in normal exit)
+        DiskAttribute.baseDirectory = null; // system temp directory
+    }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        super.channelInactive(ctx);
+        if (decoder != null) {
+            decoder.cleanFiles();
+        }
     }
 
-    public void messageReceived(ChannelHandlerContext ctx, FullHttpRequest msg) {
-        FullHttpRequest httpRequest = (FullHttpRequest) msg;
-
+    public void messageReceived(ChannelHandlerContext ctx, HttpObject object) {
         if (HttpServer.isSSL) {
             logger.info("Your session is protected by " +
                     ctx.pipeline().get(SslHandler.class).engine().getSession().getCipherSuite() +
                     " cipher suite.\n");
         }
-
         HttpRequestMessage requestMessage = null;
         try {
-            requestMessage = decode(httpRequest);
+            requestMessage = decode(object);
+            logger.info("requestMessage : \r\n" + requestMessage.toString());
         } catch (IOException e) {
             e.printStackTrace();
         }
-        logger.info("requestMessage : " + requestMessage.toString());
-        writeResponse("",ctx.channel(), httpRequest);
+        // 把处理后的结果发送到下一个ChannelHandler
+//        ctx.fireChannelRead("");
+        writeResponse("", ctx.channel(), httpRequest);
         return;
     }
 
-    private HttpRequestMessage decode(FullHttpRequest httpRequest) throws IOException {
-        HttpRequestMessage requestMessage = new HttpRequestMessage();
-        requestMessage.setHttpVersion(httpRequest.getProtocolVersion().text());
-        requestMessage.setUri(httpRequest.getUri());
-        requestMessage.setHeader(new HashMap<String, Object>());
-        requestMessage.setParameters(new HashMap<String, Object>());
-        for (Map.Entry<String, String> entry : httpRequest.headers()) {
-            requestMessage.getHeader().put(entry.getKey(), entry.getValue());
-        }
-        if (httpRequest.getMethod().equals(HttpMethod.GET)) {
-            //get请求
-            requestMessage.setMethod("GET");
-            QueryStringDecoder decoderQuery = new QueryStringDecoder(httpRequest.getUri());
-            Map<String, List<String>> uriAttributes = decoderQuery.parameters();
-            for (Map.Entry<String, List<String>> attr : uriAttributes.entrySet()) {
-                for (String attrVal : attr.getValue()) {
-                    requestMessage.getParameters().put(attr.getKey(), attrVal);
-                }
+    private HttpRequestMessage decode(HttpObject obj) throws IOException {
+        if (obj instanceof HttpRequest) {
+            this.httpRequest = (HttpRequest) obj;
+            FullHttpRequest fullHttpRequest = (FullHttpRequest) obj;
+            this.requestMessage = new HttpRequestMessage();
+            requestMessage.setHttpVersion(fullHttpRequest.getProtocolVersion().text());
+            requestMessage.setUri(fullHttpRequest.getUri());
+            requestMessage.setHeader(new HashMap<String, Object>());
+            requestMessage.setParameters(new HashMap<String, Object>());
+            for (Map.Entry<String, String> entry : fullHttpRequest.headers()) {
+                requestMessage.getHeader().put(entry.getKey(), entry.getValue());
             }
-        } else if (httpRequest.getMethod().equals(HttpMethod.POST)) {
-            //post请求
-            requestMessage.setMethod("POST");
-            HttpPostRequestDecoder decoder = new HttpPostRequestDecoder(factory, httpRequest);
-            if (decoder.isMultipart()) {
-                while (decoder.hasNext()) {
-                    InterfaceHttpData data = decoder.next();
-                    if (data != null) {
-                        try {
-                            writeHttpData(data, requestMessage);
-                        } finally {
-                            data.release();
-                        }
+            Set<Cookie> cookies;
+            String value = fullHttpRequest.headers().get(COOKIE);
+            if (value == null) {
+                cookies = Collections.emptySet();
+            } else {
+                cookies = CookieDecoder.decode(value);
+            }
+            requestMessage.getHeader().put("cookie", cookies);
+
+            if (fullHttpRequest.getMethod().equals(HttpMethod.GET)) {
+                //get请求
+                requestMessage.setMethod("GET");
+                QueryStringDecoder decoderQuery = new QueryStringDecoder(fullHttpRequest.getUri());
+                Map<String, List<String>> uriAttributes = decoderQuery.parameters();
+                for (Map.Entry<String, List<String>> attr : uriAttributes.entrySet()) {
+                    for (String attrVal : attr.getValue()) {
+                        requestMessage.getParameters().put(attr.getKey(), attrVal);
+                    }
+                }
+            } else if (fullHttpRequest.getMethod().equals(HttpMethod.POST)) {
+                //post请求
+                requestMessage.setMethod("POST");
+                decoder = new HttpPostRequestDecoder(factory, fullHttpRequest);
+            } else {
+            }
+        }
+        if (decoder != null) {
+            if (obj instanceof HttpContent) {
+                HttpContent chunk = (HttpContent) obj;
+                decoder.offer(chunk);
+                if (decoder.isMultipart()) {
+                    readHttpDataChunkByChunk(decoder);
+                } else { //普通post请求
+                    List<InterfaceHttpData> parmList = decoder.getBodyHttpDatas();
+                    for (InterfaceHttpData parm : parmList) {
+                        Attribute attribute = (Attribute) parm;
+                        requestMessage.getParameters().put(attribute.getName(), attribute.getValue());
                     }
                 }
 
-            } else {
-                decoder.offer(httpRequest);
-                List<InterfaceHttpData> parmList = decoder.getBodyHttpDatas();
-                for (InterfaceHttpData parm : parmList) {
-                    Attribute attribute = (Attribute) parm;
-                    requestMessage.getParameters().put(attribute.getName(), attribute.getValue());
+                if (chunk instanceof LastHttpContent) {
+                    reset(decoder);
                 }
             }
-            decoder.destroy();
-        } else {
+
         }
+
         return requestMessage;
     }
 
-    private void writeHttpData(InterfaceHttpData data, HttpRequestMessage requestMessage) throws IOException {
+    private void reset(HttpPostRequestDecoder decoder) {
+        requestMessage = null;
+        this.decoder.destroy();
+        this.decoder = null;
+    }
+
+    /**
+     * Example of reading request by chunk and getting values from chunk to chunk
+     */
+    private void readHttpDataChunkByChunk(HttpPostRequestDecoder decoder) throws IOException {
+        while (decoder.hasNext()) {
+            InterfaceHttpData data = decoder.next();
+            if (data != null) {
+                try {
+                    // new value
+                    writeHttpData(data);
+                } finally {
+                    data.release();
+                }
+            }
+        }
+    }
+
+    private void writeHttpData(InterfaceHttpData data) throws IOException {
 
         /**
          * HttpDataType有三种类型
@@ -108,28 +156,9 @@ public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
             Attribute attribute = (Attribute) data;
             requestMessage.getParameters().put(attribute.getName(), attribute.getValue());
         } else if (data.getHttpDataType() == HttpDataType.FileUpload) {
-            String uploadFileName = getUploadFileName(data);
             FileUpload fileUpload = (FileUpload) data;
             if (fileUpload.isCompleted()) {
-                // fileUpload.isInMemory();// tells if the file is in Memory
-                // or on File
-                // fileUpload.renameTo(dest); // enable to move into another
-                // File dest
-                // decoder.removeFileUploadFromClean(fileUpload); //remove
-                // the File of to delete file
-                String tmp = System.getProperty("java.io.tmpdir");
-                if (System.getProperties().getProperty("os.name").toLowerCase().contains("window")) {
-                    tmp = tmp + "\\";
-                } else
-                    tmp = tmp + "/";
-                File dir = new File(tmp + File.separator);
-                if (!dir.exists()) {
-                    dir.mkdir();
-                }
-                File dest = new File(dir, uploadFileName);
-                fileUpload.renameTo(dest);
-//                requestMessage.
-                requestMessage.getParameters().put(fileUpload.getName(), dest.getAbsolutePath());
+                requestMessage.getParameters().put(fileUpload.getName(), fileUpload.getFile());
             }
         }
     }
@@ -146,7 +175,7 @@ public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
      *
      * @param channel
      */
-    private void writeResponse(String o,Channel channel, HttpRequest httpRequest) {
+    private void writeResponse(String o, Channel channel, HttpRequest httpRequest) {
         // Convert the response content to a ChannelBuffer.
         ByteBuf buf = copiedBuffer(o, CharsetUtil.UTF_8);
 
@@ -193,6 +222,6 @@ public class HttpServerHandler extends SimpleChannelInboundHandler<HttpObject> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
-        messageReceived(ctx, (FullHttpRequest) msg);
+        messageReceived(ctx, msg);
     }
 }

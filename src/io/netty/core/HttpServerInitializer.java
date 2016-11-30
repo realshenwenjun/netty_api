@@ -8,6 +8,7 @@ import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
 import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.stream.ChunkedWriteHandler;
 
 import javax.net.ssl.SSLEngine;
 
@@ -35,12 +36,17 @@ public class HttpServerInitializer extends ChannelInitializer<SocketChannel> {
          */
         pipeline.addLast("decoder", new HttpRequestDecoder());
         /**
+         * 这个放在decode之后
+         */
+        pipeline.addLast("aggregator", new HttpObjectAggregator(1048576));
+        /**
          * http-response编码器
          * http服务器端对response编码
          */
         pipeline.addLast("encoder", new HttpResponseEncoder());
 
-        pipeline.addLast("aggregator", new HttpObjectAggregator(1048576));
+        pipeline.addLast("chunked", new ChunkedWriteHandler());
+
         /**
          * 压缩
          * Compresses an HttpMessage and an HttpContent in gzip or deflate encoding
@@ -49,6 +55,10 @@ public class HttpServerInitializer extends ChannelInitializer<SocketChannel> {
          */
         pipeline.addLast("deflater", new HttpContentCompressor());
 
-        pipeline.addLast("handler", new HttpServerHandler());
+        pipeline.addLast("multipart", new HttpUploadServerHandler());
+//        pipeline.addLast("handler", new HttpServerHandler());
+        /**
+         * 具体查看配置 http://www.tuicool.com/articles/yuEbiur
+         */
     }
 }
