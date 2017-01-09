@@ -4,11 +4,11 @@ import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpContentCompressor;
-import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpRequestDecoder;
 import io.netty.handler.codec.http.HttpResponseEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
+import org.springframework.context.ApplicationContext;
 
 import javax.net.ssl.SSLEngine;
 
@@ -16,6 +16,18 @@ import javax.net.ssl.SSLEngine;
  * Created by Administrator on 2016/11/27.
  */
 public class HttpServerInitializer extends ChannelInitializer<SocketChannel> {
+    private ApplicationContext cfx;
+    private DefaultRoute route;
+
+    public HttpServerInitializer() {
+    }
+
+    public HttpServerInitializer(ApplicationContext cfx, DefaultRoute route) {
+        this.cfx = cfx;
+        this.route = route;
+    }
+
+
     @Override
     public void initChannel(SocketChannel ch) throws Exception {
         // Create a default pipeline implementation.
@@ -38,7 +50,7 @@ public class HttpServerInitializer extends ChannelInitializer<SocketChannel> {
         /**
          * 这个放在decode之后
          */
-        pipeline.addLast("aggregator", new HttpObjectAggregator(1048576));
+//        pipeline.addLast("aggregator", new HttpObjectAggregator(1048576));
         /**
          * http-response编码器
          * http服务器端对response编码
@@ -54,8 +66,14 @@ public class HttpServerInitializer extends ChannelInitializer<SocketChannel> {
          * If there is no matching encoding, no compression is done.
          */
         pipeline.addLast("deflater", new HttpContentCompressor());
-
-        pipeline.addLast("multipart", new HttpUploadServerHandler());
+        /**
+         * 支持文件上传
+         * 支持的Content-Type有：multipart/form-data（form-dta）,application/x-www-form-urlencoded
+         */
+        pipeline.addLast("multipart", new HttpUploadServerHandler(cfx, route));
+        /**
+         * 此handle与上面HttpObjectAggregator一块使用
+         */
 //        pipeline.addLast("handler", new HttpServerHandler());
         /**
          * 具体查看配置 http://www.tuicool.com/articles/yuEbiur

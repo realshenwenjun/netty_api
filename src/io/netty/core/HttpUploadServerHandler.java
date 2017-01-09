@@ -15,6 +15,7 @@
  */
 package io.netty.core;
 
+import io.netty.Exception.RouteNotFoundException;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
@@ -25,19 +26,22 @@ import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder.Incompatible
 import io.netty.handler.codec.http.multipart.InterfaceHttpData.HttpDataType;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.CharsetUtil;
+import org.apache.log4j.Logger;
+import org.springframework.context.ApplicationContext;
 
 import java.io.IOException;
 import java.util.*;
 import java.util.Map.Entry;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import static io.netty.buffer.Unpooled.copiedBuffer;
 import static io.netty.handler.codec.http.HttpHeaders.Names.*;
 
 public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObject> {
 
-    private static final Logger logger = Logger.getLogger(HttpUploadServerHandler.class.getName());
+    private ApplicationContext cfx;
+    private DefaultRoute route;
+
+    private static final Logger logger = org.apache.log4j.Logger.getLogger(HttpUploadServerHandler.class);
 
     private HttpRequest request;
 
@@ -51,13 +55,21 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
     private HttpPostRequestDecoder decoder;
 
     static {
-        DiskFileUpload.deleteOnExitTemporaryFile = true; // should delete file
+        DiskFileUpload.deleteOnExitTemporaryFile = false; // should delete file
         // on exit (in normal
         // exit)
         DiskFileUpload.baseDirectory = null; // system temp directory
-        DiskAttribute.deleteOnExitTemporaryFile = true; // should delete file on
+        DiskAttribute.deleteOnExitTemporaryFile = false; // should delete file on
         // exit (in normal exit)
         DiskAttribute.baseDirectory = null; // system temp directory
+    }
+
+    public HttpUploadServerHandler() {
+    }
+
+    public HttpUploadServerHandler(ApplicationContext applicationContext, DefaultRoute route) {
+        this.cfx = applicationContext;
+        this.route = route;
     }
 
     @Override
@@ -82,7 +94,7 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
             HttpRequest request = this.request = (HttpRequest) msg;
             requestMessage = new HttpRequestMessage();
             requestMessage.setHttpVersion(request.getProtocolVersion().text());
-            requestMessage.setUri(request.getUri());
+            requestMessage.setUri(request.getUri().substring(0, request.getUri().indexOf("?")));
             requestMessage.setHeader(new HashMap<String, Object>());
             requestMessage.setParameters(new HashMap<String, Object>());
             for (Map.Entry<String, String> entry : request.headers()) {
@@ -203,18 +215,29 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
         }
     }
 
-    private void writeResponse(Channel channel) {
-        // Convert the response content to a ChannelBuffer.
-        ByteBuf buf = copiedBuffer(requestMessage.toString(), CharsetUtil.UTF_8);
-
+    private void writeResponse(Channel channel) throws RouteNotFoundException, IOException {
+        ByteBuf buf = null;
+        FullHttpResponse response = null;
+        try {
+            buf = copiedBuffer(route.handle(requestMessage), CharsetUtil.UTF_8);
+        } catch (RouteNotFoundException r) {
+            buf = copiedBuffer("", CharsetUtil.UTF_8);
+            response = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.NOT_FOUND, buf);
+        } catch (IOException i) {
+            buf = copiedBuffer("", CharsetUtil.UTF_8);
+            response = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.INTERNAL_SERVER_ERROR, buf);
+        }
         // Decide whether to close the connection or not.
         boolean close = HttpHeaders.Values.CLOSE.equalsIgnoreCase(request.headers().get(CONNECTION))
                 || request.getProtocolVersion().equals(HttpVersion.HTTP_1_0)
                 && !HttpHeaders.Values.KEEP_ALIVE.equalsIgnoreCase(request.headers().get(CONNECTION));
 
         // Build the response object.
-        FullHttpResponse response = new DefaultFullHttpResponse(
-                HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
+        if (response == null)
+            response = new DefaultFullHttpResponse(
+                    HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
         response.headers().set(CONTENT_TYPE, "text/plain; charset=UTF-8");
 
         if (!close) {
@@ -244,93 +267,9 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
         }
     }
 
-    private void writeMenu(ChannelHandlerContext ctx) {
-        // print several HTML forms
-        // Convert the response content to a ChannelBuffer.
-//        responseContent.setLength(0);
-//
-//        // create Pseudo Menu
-//        responseContent.append("<html>");
-//        responseContent.append("<head>");
-//        responseContent.append("<title>Netty Test Form</title>\r\n");
-//        responseContent.append("</head>\r\n");
-//        responseContent.append("<body bgcolor=white><style>td{font-size: 12pt;}</style>");
-//
-//        responseContent.append("<table border=\"0\">");
-//        responseContent.append("<tr>");
-//        responseContent.append("<td>");
-//        responseContent.append("<h1>Netty Test Form</h1>");
-//        responseContent.append("Choose one FORM");
-//        responseContent.append("</td>");
-//        responseContent.append("</tr>");
-//        responseContent.append("</table>\r\n");
-//
-//        // GET
-//        responseContent.append("<CENTER>GET FORM<HR WIDTH=\"75%\" NOSHADE color=\"blue\"></CENTER>");
-//        responseContent.append("<FORM ACTION=\"/formget\" METHOD=\"GET\">");
-//        responseContent.append("<input type=hidden name=getform value=\"GET\">");
-//        responseContent.append("<table border=\"0\">");
-//        responseContent.append("<tr><td>Fill with value: <br> <input type=text name=\"info\" size=10></td></tr>");
-//        responseContent.append("<tr><td>Fill with value: <br> <input type=text name=\"secondinfo\" size=20>");
-//        responseContent
-//                .append("<tr><td>Fill with value: <br> <textarea name=\"thirdinfo\" cols=40 rows=10></textarea>");
-//        responseContent.append("</td></tr>");
-//        responseContent.append("<tr><td><INPUT TYPE=\"submit\" NAME=\"Send\" VALUE=\"Send\"></INPUT></td>");
-//        responseContent.append("<td><INPUT TYPE=\"reset\" NAME=\"Clear\" VALUE=\"Clear\" ></INPUT></td></tr>");
-//        responseContent.append("</table></FORM>\r\n");
-//        responseContent.append("<CENTER><HR WIDTH=\"75%\" NOSHADE color=\"blue\"></CENTER>");
-//
-//        // POST
-//        responseContent.append("<CENTER>POST FORM<HR WIDTH=\"75%\" NOSHADE color=\"blue\"></CENTER>");
-//        responseContent.append("<FORM ACTION=\"/formpost\" METHOD=\"POST\">");
-//        responseContent.append("<input type=hidden name=getform value=\"POST\">");
-//        responseContent.append("<table border=\"0\">");
-//        responseContent.append("<tr><td>Fill with value: <br> <input type=text name=\"info\" size=10></td></tr>");
-//        responseContent.append("<tr><td>Fill with value: <br> <input type=text name=\"secondinfo\" size=20>");
-//        responseContent
-//                .append("<tr><td>Fill with value: <br> <textarea name=\"thirdinfo\" cols=40 rows=10></textarea>");
-//        responseContent.append("<tr><td>Fill with file (only file name will be transmitted): <br> "
-//                + "<input type=file name=\"myfile\">");
-//        responseContent.append("</td></tr>");
-//        responseContent.append("<tr><td><INPUT TYPE=\"submit\" NAME=\"Send\" VALUE=\"Send\"></INPUT></td>");
-//        responseContent.append("<td><INPUT TYPE=\"reset\" NAME=\"Clear\" VALUE=\"Clear\" ></INPUT></td></tr>");
-//        responseContent.append("</table></FORM>\r\n");
-//        responseContent.append("<CENTER><HR WIDTH=\"75%\" NOSHADE color=\"blue\"></CENTER>");
-//
-//        // POST with enctype="multipart/form-data"
-//        responseContent.append("<CENTER>POST MULTIPART FORM<HR WIDTH=\"75%\" NOSHADE color=\"blue\"></CENTER>");
-//        responseContent.append("<FORM ACTION=\"/formpostmultipart\" ENCTYPE=\"multipart/form-data\" METHOD=\"POST\">");
-//        responseContent.append("<input type=hidden name=getform value=\"POST\">");
-//        responseContent.append("<table border=\"0\">");
-//        responseContent.append("<tr><td>Fill with value: <br> <input type=text name=\"info\" size=10></td></tr>");
-//        responseContent.append("<tr><td>Fill with value: <br> <input type=text name=\"secondinfo\" size=20>");
-//        responseContent
-//                .append("<tr><td>Fill with value: <br> <textarea name=\"thirdinfo\" cols=40 rows=10></textarea>");
-//        responseContent.append("<tr><td>Fill with file: <br> <input type=file name=\"myfile\">");
-//        responseContent.append("</td></tr>");
-//        responseContent.append("<tr><td><INPUT TYPE=\"submit\" NAME=\"Send\" VALUE=\"Send\"></INPUT></td>");
-//        responseContent.append("<td><INPUT TYPE=\"reset\" NAME=\"Clear\" VALUE=\"Clear\" ></INPUT></td></tr>");
-//        responseContent.append("</table></FORM>\r\n");
-//        responseContent.append("<CENTER><HR WIDTH=\"75%\" NOSHADE color=\"blue\"></CENTER>");
-//
-//        responseContent.append("</body>");
-//        responseContent.append("</html>");
-
-        ByteBuf buf = copiedBuffer(requestMessage.toString(), CharsetUtil.UTF_8);
-        // Build the response object.
-        FullHttpResponse response = new DefaultFullHttpResponse(
-                HttpVersion.HTTP_1_1, HttpResponseStatus.OK, buf);
-
-        response.headers().set(CONTENT_TYPE, "text/html; charset=UTF-8");
-        response.headers().set(CONTENT_LENGTH, buf.readableBytes());
-
-        // Write the response.
-        ctx.channel().writeAndFlush(response);
-    }
-
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        logger.log(Level.WARNING, requestMessage.toString(), cause);
+        logger.debug(requestMessage.toString());
         ctx.channel().close();
     }
 }
