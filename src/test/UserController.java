@@ -34,9 +34,6 @@ public class UserController {
         userService.say();
         Object q = request.getParameter("e");
         Storage storage = null;
-        if (storage == null)
-            throw new InitRouteMappingException();
-        System.out.println(storage);
         ResultModel resultModel = new ResultModel();
         resultModel.put("e", q);
         return resultModel;

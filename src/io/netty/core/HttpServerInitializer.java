@@ -35,7 +35,7 @@ public class HttpServerInitializer extends ChannelInitializer<SocketChannel> {
 
         if (HttpServer.isSSL) {
             SSLEngine engine = SecureChatSslContextFactory.getServerContext().createSSLEngine();
-            engine.setNeedClientAuth(true); //ssl双向认证
+            engine.setNeedClientAuth(false); //ssl双向认证
             engine.setUseClientMode(false);
             engine.setWantClientAuth(true);
             engine.setEnabledProtocols(new String[]{"SSLv3"});
