@@ -84,7 +84,6 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
 
     @Override
     public void channelRead0(ChannelHandlerContext ctx, HttpObject msg) throws Exception {
-        logger.info("" + msg);
         if (HttpServer.isSSL) {
             logger.info("Your session is protected by " +
                     ctx.pipeline().get(SslHandler.class).engine().getSession().getCipherSuite() +
@@ -269,7 +268,6 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        logger.debug(requestMessage.toString());
         ctx.channel().close();
     }
 }
