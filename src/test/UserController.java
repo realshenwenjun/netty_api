@@ -23,7 +23,6 @@ import org.springframework.stereotype.Service;
 @NettyMapping
 public class UserController {
     Logger logger = Logger.getLogger(UserController.class);
-    private static final Log log = LogFactory.getLog(UserController.class.getName());
     @Autowired
     private UserService userService;
     @Autowired
@@ -31,6 +30,7 @@ public class UserController {
 
     @NettyMapping("/user/login")
     public ResultModel login(HttpRequestMessage request) throws Exception {
+        logger.info(request.toString());
         userService.say();
         Object q = request.getParameter("e");
         Storage storage = null;
