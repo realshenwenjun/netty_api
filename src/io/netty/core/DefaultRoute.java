@@ -7,9 +7,9 @@ import io.netty.Invoke.Invoke;
 import io.netty.Invoke.ObjectMapper;
 import io.netty.Invoke.ResultModel;
 import io.netty.annotation.NettyMapping;
+import io.netty.filter.DefaultFilter;
 import org.springframework.context.ApplicationContext;
 
-import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,12 +22,15 @@ public class DefaultRoute {
 
     private static Map<String, Invoke> routes = new ConcurrentHashMap<String, Invoke>();
 
+    private static Map<String, DefaultFilter> filters = new ConcurrentHashMap<>();
+
     public DefaultRoute() {
     }
 
     public DefaultRoute(ApplicationContext context) throws Exception {
         this.context = context;
         initRoute();
+        initFilter();
     }
 
     private void initRoute() throws Exception {
@@ -51,6 +54,13 @@ public class DefaultRoute {
         }
     }
 
+    private void initFilter() throws Exception {
+        Map<String, DefaultFilter> beans = context.getBeansOfType(DefaultFilter.class);
+        if (beans != null && beans.size() != 0)
+            filters = beans;
+
+    }
+
     public Invoke getInvoke(String cxt) throws RouteNotFoundException {
         // TODO 分析cxt得到key
         Invoke invoke = routes.get(cxt);
@@ -60,11 +70,19 @@ public class DefaultRoute {
         return invoke;
     }
 
-    public String handle(HttpRequestMessage request) throws RouteNotFoundException, IOException {
+    private void doChain(HttpRequestMessage request) throws Throwable {
+        for (DefaultFilter filter : filters.values()) {
+            if (filter.match(request))
+                filter.chain(request);
+        }
+    }
+
+    public String handle(HttpRequestMessage request) throws Exception {
         Invoke invoke = this.getInvoke(request.getUri());
         invoke.setR(request);
         ResultModel resultModel = null;
         try {
+            doChain(request);
             resultModel = invoke.invoke();
         } catch (Throwable throwable) {
             throwable.printStackTrace();

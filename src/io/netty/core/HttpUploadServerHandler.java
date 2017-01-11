@@ -214,7 +214,7 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
         }
     }
 
-    private void writeResponse(Channel channel) throws RouteNotFoundException, IOException {
+    private void writeResponse(Channel channel) {
         ByteBuf buf = null;
         FullHttpResponse response = null;
         try {
@@ -223,7 +223,7 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
             buf = copiedBuffer("", CharsetUtil.UTF_8);
             response = new DefaultFullHttpResponse(
                     HttpVersion.HTTP_1_1, HttpResponseStatus.NOT_FOUND, buf);
-        } catch (IOException i) {
+        } catch (Exception e) {
             buf = copiedBuffer("", CharsetUtil.UTF_8);
             response = new DefaultFullHttpResponse(
                     HttpVersion.HTTP_1_1, HttpResponseStatus.INTERNAL_SERVER_ERROR, buf);
@@ -245,13 +245,13 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
             response.headers().set(CONTENT_LENGTH, buf.readableBytes());
         }
 
-        Set<Cookie> cookies;
-        String value = request.headers().get(COOKIE);
-        if (value == null) {
-            cookies = Collections.emptySet();
-        } else {
-            cookies = CookieDecoder.decode(value);
-        }
+        Set<Cookie> cookies = (Set<Cookie>) requestMessage.getHeader().get(COOKIE);
+//        String value = request.headers().get(COOKIE);
+//        if (value == null) {
+//            cookies = Collections.emptySet();
+//        } else {
+//            cookies = CookieDecoder.decode(value);
+//        }
         if (!cookies.isEmpty()) {
             // Reset the cookies if necessary.
             for (Cookie cookie : cookies) {

@@ -3,7 +3,7 @@ package io.netty.Exception;
 /**
  * Created by ASUS on 2017/1/9.
  */
-public class RouteNotFoundException extends Exception implements NettyException{
+public class RouteNotFoundException extends Exception {
     public RouteNotFoundException() {
     }
 
@@ -21,13 +21,5 @@ public class RouteNotFoundException extends Exception implements NettyException{
 
     public RouteNotFoundException(String message, Throwable cause, boolean enableSuppression, boolean writableStackTrace) {
         super(message, cause, enableSuppression, writableStackTrace);
-    }
-
-    public int getCode() {
-        return 404;
-    }
-
-    public String getMes() {
-        return "Not Found";
     }
 }
