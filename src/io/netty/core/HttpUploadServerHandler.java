@@ -218,6 +218,7 @@ public class HttpUploadServerHandler extends SimpleChannelInboundHandler<HttpObj
         ByteBuf buf = null;
         FullHttpResponse response = null;
         try {
+            logger.info("\r\n"+requestMessage);
             buf = copiedBuffer(route.handle(requestMessage), CharsetUtil.UTF_8);
         } catch (RouteNotFoundException r) {
             buf = copiedBuffer("", CharsetUtil.UTF_8);

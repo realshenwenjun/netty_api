@@ -1,5 +1,6 @@
 package test;
 
+import org.apache.log4j.Logger;
 import org.springframework.stereotype.Service;
 
 /**
@@ -7,8 +8,9 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class UserService {
-
+    Logger logger = Logger.getLogger(UserService.class);
     public void say(){
+        logger.warn("ask say****************************ask finished.");
         System.out.println("********************");
     }
 }

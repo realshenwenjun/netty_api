@@ -8,22 +8,5 @@
        http://www.springframework.org/schema/context/spring-context-3.0.xsd">
 	<context:annotation-config />
 	<context:component-scan base-package="test"/>
-	<bean id="poolConfig" class="huivo.thrift.spring.ConnectionPoolConfig">
-		<property name="maxActive" value="10"/>
-	</bean>
 
-	<bean id="applicationBean" class="huivo.thrift.spring.ApplicationBean">
-		<property name="name" value="platform-api"/>
-	</bean>
-
-	<bean id="storeService" class="huivo.thrift.spring.ClientBean">
-		<property name="serviceClientClass" value="huivo.core.thrift.storage.StoreService.Client"/>
-		<property name="ifaceClass" value="huivo.core.thrift.storage.StoreService.Iface"/>
-		<property name="poolConfig" ref="poolConfig"/>
-		<property name="providers">
-			<list>
-				<value>testBoss:12090</value>
-			</list>
-		</property>
-	</bean>
 </beans>

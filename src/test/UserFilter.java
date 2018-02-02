@@ -17,7 +17,7 @@ public class UserFilter implements DefaultFilter {
 
     @Override
     public void chain(HttpRequestMessage requestMessage) throws Throwable{
-        System.out.println(requestMessage);
+        //System.out.println(requestMessage);
         System.out.println("输出了");
     }
 }

@@ -37,7 +37,7 @@ public class HttpServer {
                     .childHandler(new HttpServerInitializer(cfx, route));
 
             Channel ch = b.bind(port).sync().channel();
-            logger.info("Server start finished");
+            logger.info("Server start finished on " + port);
             ch.closeFuture().sync();
         } finally {
             bossGroup.shutdownGracefully();
