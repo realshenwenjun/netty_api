@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
  */
 
 @Service
-@NettyMapping
+@NettyMapping("/admin")
 public class UserController {
     Logger logger = Logger.getLogger(UserController.class);
     @Autowired
@@ -20,6 +20,16 @@ public class UserController {
 
     @NettyMapping("/user/login")
     public ResultModel login(HttpRequestMessage request) throws Exception {
+        userService.say();
+        Object q = request.getParameter("e");
+
+        ResultModel resultModel = new ResultModel();
+        resultModel.put("e", q);
+        return resultModel;
+    }
+
+    @NettyMapping("/user/login/out")
+    public ResultModel loginOut(HttpRequestMessage request) throws Exception {
         userService.say();
         Object q = request.getParameter("e");
 
